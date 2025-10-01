@@ -7,12 +7,12 @@
 //! cryptographic hash values computed over the required members of a JWK.
 
 use alloc::fmt::Write;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 use jose_b64::base64ct::{Base64UrlUnpadded, Encoding};
 use sha2::{Digest, Sha256};
 
-use crate::key::{Ec, EcCurves, Oct, Okp, OkpCurves, Rsa};
+use crate::key::{Ec, Oct, Okp, Rsa};
 use crate::{Jwk, Key};
 
 /// Trait for computing JWK thumbprints.
@@ -85,19 +85,13 @@ impl JwkThumbprint for Ec {
     where
         D: Digest,
     {
-        let crv = match self.crv {
-            EcCurves::P256 => "P-256",
-            EcCurves::P384 => "P-384",
-            EcCurves::P521 => "P-521",
-            EcCurves::P256K => "secp256k1",
-        };
-
+        let crv = self.crv.to_string();
         let x = Base64UrlUnpadded::encode_string(&self.x);
         let y = Base64UrlUnpadded::encode_string(&self.y);
 
         // Required members in lexicographic order: crv, kty, x, y
         let required_fields = &[
-            ("crv", crv),
+            ("crv", crv.as_str()),
             ("kty", "EC"),
             ("x", x.as_str()),
             ("y", y.as_str()),
@@ -211,17 +205,11 @@ impl JwkThumbprint for Okp {
     where
         D: Digest,
     {
-        let crv = match self.crv {
-            OkpCurves::Ed25519 => "Ed25519",
-            OkpCurves::Ed448 => "Ed448",
-            OkpCurves::X25519 => "X25519",
-            OkpCurves::X448 => "X448",
-        };
-
+        let crv = self.crv.to_string();
         let x = Base64UrlUnpadded::encode_string(&self.x);
 
         // Required members in lexicographic order: crv, kty, x
-        let required_fields = &[("crv", crv), ("kty", "OKP"), ("x", x.as_str())];
+        let required_fields = &[("crv", crv.as_str()), ("kty", "OKP"), ("x", x.as_str())];
 
         let json = build_canonical_json(required_fields)?;
         Ok(compute_thumbprint_from_json::<D>(&json))
