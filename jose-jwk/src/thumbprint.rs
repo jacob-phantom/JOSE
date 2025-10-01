@@ -8,7 +8,6 @@
 
 use alloc::fmt::Write;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use jose_b64::base64ct::{Base64UrlUnpadded, Encoding};
 use sha2::{Digest, Sha256};
@@ -50,30 +49,19 @@ impl core::fmt::Display for ThumbprintError {
 }
 
 /// Helper function to build the canonical JSON representation for thumbprint computation.
-fn build_canonical_json(
-    kty: &str,
-    required_fields: &[(&str, &str)],
-) -> Result<String, ThumbprintError> {
+/// Fields must be provided in lexicographic order.
+fn build_canonical_json(required_fields: &[(&str, &str)]) -> Result<String, ThumbprintError> {
     let mut json = String::with_capacity(256);
 
-    // Start with opening brace
     json.push('{');
 
-    // Create a vector of all fields including kty, then sort lexicographically
-    let mut all_fields = Vec::with_capacity(required_fields.len() + 1);
-    all_fields.push(("kty", kty));
-    all_fields.extend_from_slice(required_fields);
-    all_fields.sort_by_key(|(key, _)| *key);
-
-    // Write each field
-    for (i, (key, value)) in all_fields.iter().enumerate() {
+    for (i, (key, value)) in required_fields.iter().enumerate() {
         if i > 0 {
             json.push(',');
         }
         write!(json, "\"{key}\":\"{value}\"").map_err(|_| ThumbprintError::JsonFormatError)?;
     }
 
-    // Close with closing brace
     json.push('}');
 
     Ok(json)
@@ -107,9 +95,15 @@ impl JwkThumbprint for Ec {
         let x = Base64UrlUnpadded::encode_string(&self.x);
         let y = Base64UrlUnpadded::encode_string(&self.y);
 
-        let required_fields = &[("crv", crv), ("x", x.as_str()), ("y", y.as_str())];
+        // Required members in lexicographic order: crv, kty, x, y
+        let required_fields = &[
+            ("crv", crv),
+            ("kty", "EC"),
+            ("x", x.as_str()),
+            ("y", y.as_str()),
+        ];
 
-        let json = build_canonical_json("EC", required_fields)?;
+        let json = build_canonical_json(required_fields)?;
         Ok(compute_thumbprint_from_json::<D>(&json))
     }
 }
@@ -181,9 +175,10 @@ impl JwkThumbprint for Rsa {
         let e = Base64UrlUnpadded::encode_string(&self.e);
         let n = Base64UrlUnpadded::encode_string(&self.n);
 
-        let required_fields = &[("e", e.as_str()), ("n", n.as_str())];
+        // Required members in lexicographic order: e, kty, n
+        let required_fields = &[("e", e.as_str()), ("kty", "RSA"), ("n", n.as_str())];
 
-        let json = build_canonical_json("RSA", required_fields)?;
+        let json = build_canonical_json(required_fields)?;
         Ok(compute_thumbprint_from_json::<D>(&json))
     }
 }
@@ -199,9 +194,10 @@ impl JwkThumbprint for Oct {
     {
         let k = Base64UrlUnpadded::encode_string(&self.k);
 
-        let required_fields = &[("k", k.as_str())];
+        // Required members in lexicographic order: k, kty
+        let required_fields = &[("k", k.as_str()), ("kty", "oct")];
 
-        let json = build_canonical_json("oct", required_fields)?;
+        let json = build_canonical_json(required_fields)?;
         Ok(compute_thumbprint_from_json::<D>(&json))
     }
 }
@@ -224,9 +220,10 @@ impl JwkThumbprint for Okp {
 
         let x = Base64UrlUnpadded::encode_string(&self.x);
 
-        let required_fields = &[("crv", crv), ("x", x.as_str())];
+        // Required members in lexicographic order: crv, kty, x
+        let required_fields = &[("crv", crv), ("kty", "OKP"), ("x", x.as_str())];
 
-        let json = build_canonical_json("OKP", required_fields)?;
+        let json = build_canonical_json(required_fields)?;
         Ok(compute_thumbprint_from_json::<D>(&json))
     }
 }
@@ -262,8 +259,8 @@ mod tests {
 
     #[test]
     fn test_build_canonical_json() {
-        let result =
-            build_canonical_json("RSA", &[("e", "AQAB"), ("n", "test")]).expect("canonical JSON");
+        let result = build_canonical_json(&[("e", "AQAB"), ("kty", "RSA"), ("n", "test")])
+            .expect("canonical JSON");
         assert_eq!(result, r#"{"e":"AQAB","kty":"RSA","n":"test"}"#);
     }
 
