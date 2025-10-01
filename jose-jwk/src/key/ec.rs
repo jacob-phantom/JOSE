@@ -45,37 +45,15 @@ pub enum EcCurves {
     P256K,
 }
 
-impl core::fmt::Display for EcCurves {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl EcCurves {
+    /// Returns the string representation of the curve.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            EcCurves::P256 => write!(f, "P-256"),
-            EcCurves::P384 => write!(f, "P-384"),
-            EcCurves::P521 => write!(f, "P-521"),
-            EcCurves::P256K => write!(f, "secp256k1"),
+            EcCurves::P256 => "P-256",
+            EcCurves::P384 => "P-384",
+            EcCurves::P521 => "P-521",
+            EcCurves::P256K => "secp256k1",
         }
-    }
-}
-
-impl core::str::FromStr for EcCurves {
-    type Err = ParseEcCurveError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "P-256" => Ok(EcCurves::P256),
-            "P-384" => Ok(EcCurves::P384),
-            "P-521" => Ok(EcCurves::P521),
-            "secp256k1" => Ok(EcCurves::P256K),
-            _ => Err(ParseEcCurveError),
-        }
-    }
-}
-
-/// Error returned when parsing an EC curve name fails.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParseEcCurveError;
-
-impl core::fmt::Display for ParseEcCurveError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "invalid EC curve name")
     }
 }

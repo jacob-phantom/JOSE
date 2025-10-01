@@ -40,37 +40,15 @@ pub enum OkpCurves {
     X448,
 }
 
-impl core::fmt::Display for OkpCurves {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl OkpCurves {
+    /// Returns the string representation of the curve.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            OkpCurves::Ed25519 => write!(f, "Ed25519"),
-            OkpCurves::Ed448 => write!(f, "Ed448"),
-            OkpCurves::X25519 => write!(f, "X25519"),
-            OkpCurves::X448 => write!(f, "X448"),
+            OkpCurves::Ed25519 => "Ed25519",
+            OkpCurves::Ed448 => "Ed448",
+            OkpCurves::X25519 => "X25519",
+            OkpCurves::X448 => "X448",
         }
-    }
-}
-
-impl core::str::FromStr for OkpCurves {
-    type Err = ParseOkpCurveError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Ed25519" => Ok(OkpCurves::Ed25519),
-            "Ed448" => Ok(OkpCurves::Ed448),
-            "X25519" => Ok(OkpCurves::X25519),
-            "X448" => Ok(OkpCurves::X448),
-            _ => Err(ParseOkpCurveError),
-        }
-    }
-}
-
-/// Error returned when parsing an OKP curve name fails.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParseOkpCurveError;
-
-impl core::fmt::Display for ParseOkpCurveError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "invalid OKP curve name")
     }
 }
