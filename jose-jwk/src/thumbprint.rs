@@ -6,7 +6,6 @@
 //! This module provides methods for computing JWK Thumbprints, which are
 //! cryptographic hash values computed over the required members of a JWK.
 
-use alloc::fmt::Write;
 use alloc::string::String;
 
 use jose_b64::base64ct::{Base64UrlUnpadded, Encoding};
@@ -48,34 +47,6 @@ impl core::fmt::Display for ThumbprintError {
     }
 }
 
-/// Helper function to build the canonical JSON representation for thumbprint computation.
-/// Fields must be provided in lexicographic order.
-fn build_canonical_json(required_fields: &[(&str, &str)]) -> Result<String, ThumbprintError> {
-    let mut json = String::with_capacity(256);
-
-    json.push('{');
-
-    for (i, (key, value)) in required_fields.iter().enumerate() {
-        if i > 0 {
-            json.push(',');
-        }
-        write!(json, "\"{key}\":\"{value}\"").map_err(|_| ThumbprintError::JsonFormatError)?;
-    }
-
-    json.push('}');
-
-    Ok(json)
-}
-
-/// Compute thumbprint from canonical JSON.
-fn compute_thumbprint_from_json<D>(json: &str) -> String
-where
-    D: Digest,
-{
-    let hash = D::digest(json.as_bytes());
-    Base64UrlUnpadded::encode_string(&hash)
-}
-
 impl JwkThumbprint for Ec {
     fn jwk_thumbprint(&self) -> Result<String, ThumbprintError> {
         self.jwk_thumbprint_with_hash::<Sha256>()
@@ -85,19 +56,18 @@ impl JwkThumbprint for Ec {
     where
         D: Digest,
     {
-        let x = Base64UrlUnpadded::encode_string(&self.x);
-        let y = Base64UrlUnpadded::encode_string(&self.y);
-
         // Required members in lexicographic order: crv, kty, x, y
-        let required_fields = &[
-            ("crv", self.crv.as_str()),
-            ("kty", "EC"),
-            ("x", x.as_str()),
-            ("y", y.as_str()),
-        ];
+        let buf = D::new()
+            .chain_update(r#"{"crv":""#)
+            .chain_update(self.crv.as_str())
+            .chain_update(r#"","kty":"EC","x":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.x))
+            .chain_update(r#"","y":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.y))
+            .chain_update(r#""}"#)
+            .finalize();
 
-        let json = build_canonical_json(required_fields)?;
-        Ok(compute_thumbprint_from_json::<D>(&json))
+        Ok(Base64UrlUnpadded::encode_string(&buf))
     }
 }
 
@@ -165,14 +135,16 @@ impl JwkThumbprint for Rsa {
     where
         D: Digest,
     {
-        let e = Base64UrlUnpadded::encode_string(&self.e);
-        let n = Base64UrlUnpadded::encode_string(&self.n);
-
         // Required members in lexicographic order: e, kty, n
-        let required_fields = &[("e", e.as_str()), ("kty", "RSA"), ("n", n.as_str())];
+        let buf = D::new()
+            .chain_update(r#"{"e":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.e))
+            .chain_update(r#"","kty":"RSA","n":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.n))
+            .chain_update(r#""}"#)
+            .finalize();
 
-        let json = build_canonical_json(required_fields)?;
-        Ok(compute_thumbprint_from_json::<D>(&json))
+        Ok(Base64UrlUnpadded::encode_string(&buf))
     }
 }
 
@@ -185,13 +157,14 @@ impl JwkThumbprint for Oct {
     where
         D: Digest,
     {
-        let k = Base64UrlUnpadded::encode_string(&self.k);
-
         // Required members in lexicographic order: k, kty
-        let required_fields = &[("k", k.as_str()), ("kty", "oct")];
+        let buf = D::new()
+            .chain_update(r#"{"k":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.k))
+            .chain_update(r#"","kty":"oct"}"#)
+            .finalize();
 
-        let json = build_canonical_json(required_fields)?;
-        Ok(compute_thumbprint_from_json::<D>(&json))
+        Ok(Base64UrlUnpadded::encode_string(&buf))
     }
 }
 
@@ -204,17 +177,16 @@ impl JwkThumbprint for Okp {
     where
         D: Digest,
     {
-        let x = Base64UrlUnpadded::encode_string(&self.x);
-
         // Required members in lexicographic order: crv, kty, x
-        let required_fields = &[
-            ("crv", self.crv.as_str()),
-            ("kty", "OKP"),
-            ("x", x.as_str()),
-        ];
+        let buf = D::new()
+            .chain_update(r#"{"crv":""#)
+            .chain_update(self.crv.as_str())
+            .chain_update(r#"","kty":"OKP","x":""#)
+            .chain_update(Base64UrlUnpadded::encode_string(&self.x))
+            .chain_update(r#""}"#)
+            .finalize();
 
-        let json = build_canonical_json(required_fields)?;
-        Ok(compute_thumbprint_from_json::<D>(&json))
+        Ok(Base64UrlUnpadded::encode_string(&buf))
     }
 }
 
@@ -238,36 +210,5 @@ impl JwkThumbprint for Key {
             Key::Oct(oct) => oct.jwk_thumbprint_with_hash::<D>(),
             Key::Okp(okp) => okp.jwk_thumbprint_with_hash::<D>(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::key::Rsa;
-    use alloc::vec;
-
-    #[test]
-    fn test_build_canonical_json() {
-        let result = build_canonical_json(&[("e", "AQAB"), ("kty", "RSA"), ("n", "test")])
-            .expect("canonical JSON");
-        assert_eq!(result, r#"{"e":"AQAB","kty":"RSA","n":"test"}"#);
-    }
-
-    #[test]
-    fn test_rsa_thumbprint_json_format() {
-        let rsa = Rsa {
-            e: vec![1, 0, 1].into(),
-            n: vec![0xAB, 0xCD, 0xEF].into(),
-            prv: None,
-        };
-
-        let result = rsa.jwk_thumbprint().expect("canonical JSON");
-
-        // Should be base64url encoded
-        assert!(!result.is_empty());
-        assert!(!result.contains('='));
-        assert!(!result.contains('/'));
-        assert!(!result.contains('+'));
     }
 }
