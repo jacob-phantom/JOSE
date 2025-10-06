@@ -3,10 +3,12 @@
 
 //! JWS Cryptographic Implementation
 
+pub mod ecdsa;
+
 use alloc::{vec, vec::Vec};
 
 use jose_b64::stream::Update;
-use rand_core::RngCore;
+use rand_core::TryRngCore;
 
 use crate::{Flattened, General, Jws, Protected, Signature, Unprotected};
 
@@ -16,7 +18,7 @@ pub trait Signer<U = Unprotected, P = Protected<U>>: Update {
     type FinishError: From<Self::Error>;
 
     /// Finish processing payload and create the signature.
-    fn finish(self, rng: impl 'static + RngCore) -> Result<Signature<U, P>, Self::FinishError>;
+    fn finish(self, rng: impl 'static + TryRngCore) -> Result<Signature<U, P>, Self::FinishError>;
 }
 
 /// A signature creation key

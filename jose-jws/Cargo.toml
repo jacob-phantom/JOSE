@@ -17,6 +17,15 @@ readme = "README.md"
 edition = "2024"
 rust-version = "1.85"
 
+[features]
+default = ["crypto"]
+crypto = ["p256", "p384", "p521", "k256"]
+ecdsa = ["dep:ecdsa"]
+p256 = ["dep:p256", "ecdsa", "elliptic-curve", "signature"]
+p384 = ["dep:p384", "ecdsa", "elliptic-curve", "signature"]
+p521 = ["dep:p521", "ecdsa", "elliptic-curve", "signature"]
+k256 = ["dep:k256", "ecdsa", "elliptic-curve", "signature"]
+
 [dependencies]
 jose-b64 = { version = "=0.2.0-pre", default-features = false, features = ["json"] }
 jose-jwa = { version = "=0.2.0-pre" }
@@ -24,6 +33,18 @@ jose-jwk = { version = "=0.2.0-pre", default-features = false }
 serde = { version = "1.0.185", default-features = false, features = ["alloc", "derive"] }
 serde_json = { version = "1.0.96", default-features = false }
 rand_core = { version = "0.9", default-features = false }
+
+# optional dependencies
+ecdsa = { version = "0.17.0-rc.7", optional = true, default-features = false, features = ["der", "signing", "hazmat"] }
+elliptic-curve = { version = "0.14.0-rc.4", default-features = false, optional = true, features = ["arithmetic"] }
+p256 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
+p384 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
+p521 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
+k256 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
+signature = { version = "3.0.0-rc.4", default-features = false, optional = true, features = ["digest"] }
+
+[dev-dependencies]
+rand_core = { version = "0.9", features = ["os_rng"] }
 
 [package.metadata.docs.rs]
 all-features = true
