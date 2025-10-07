@@ -12,7 +12,10 @@ use elliptic_curve::{Curve, CurveArithmetic, array::ArraySize};
 use jose_b64::serde::Json;
 use rand_core::TryRngCore;
 use serde::Serialize;
-use signature::{digest::Digest, hazmat::PrehashSigner};
+use signature::{
+    digest::Digest,
+    hazmat::{PrehashSigner, PrehashVerifier},
+};
 
 use super::*;
 
@@ -21,20 +24,40 @@ use super::*;
 pub type P256SignerState<'a, U = Unprotected, P = Protected<U>> =
     EcdsaSignerState<'a, p256::NistP256, U, P>;
 
+/// P-256 verifier state
+#[cfg(feature = "p256")]
+pub type P256VerifierState<'a, U = Unprotected, P = Protected<U>> =
+    EcdsaVerifierState<'a, p256::NistP256, U, P>;
+
 /// P-384 signer state
 #[cfg(feature = "p384")]
 pub type P384SignerState<'a, U = Unprotected, P = Protected<U>> =
     EcdsaSignerState<'a, p384::NistP384, U, P>;
+
+/// P-384 verifier state
+#[cfg(feature = "p384")]
+pub type P384VerifierState<'a, U = Unprotected, P = Protected<U>> =
+    EcdsaVerifierState<'a, p384::NistP384, U, P>;
 
 /// P-521 signer state
 #[cfg(feature = "p521")]
 pub type P521SignerState<'a, U = Unprotected, P = Protected<U>> =
     EcdsaSignerState<'a, p521::NistP521, U, P>;
 
+/// P-521 verifier state
+#[cfg(feature = "p521")]
+pub type P521VerifierState<'a, U = Unprotected, P = Protected<U>> =
+    EcdsaVerifierState<'a, p521::NistP521, U, P>;
+
 /// K-256 signer state
 #[cfg(feature = "k256")]
 pub type K256SignerState<'a, U = Unprotected, P = Protected<U>> =
     EcdsaSignerState<'a, k256::Secp256k1, U, P>;
+
+/// K-256 verifier state
+#[cfg(feature = "k256")]
+pub type K256VerifierState<'a, U = Unprotected, P = Protected<U>> =
+    EcdsaVerifierState<'a, k256::Secp256k1, U, P>;
 
 /// ECDSA signer state
 pub struct EcdsaSignerState<'a, C, U, P>
@@ -50,6 +73,22 @@ where
     signer: &'a ::ecdsa::SigningKey<C>,
     /// Digest accumulator
     digest: <C as DigestAlgorithm>::Digest,
+}
+
+/// ECDSA verifier state
+pub struct EcdsaVerifierState<'a, C, U, P>
+where
+    C: CurveArithmetic + DigestAlgorithm + EcdsaCurve,
+    <<C as Curve>::FieldBytesSize as Add>::Output: ArraySize,
+{
+    /// Verifying key reference
+    verifier: &'a ::ecdsa::VerifyingKey<C>,
+    /// Expected signature bytes
+    signature: &'a [u8],
+    /// Digest accumulator
+    digest: <C as DigestAlgorithm>::Digest,
+    /// Marker for U and P types
+    _phantom: core::marker::PhantomData<(U, P)>,
 }
 
 impl<'a, C, U, P> SigningKey<'a, U, P> for ::ecdsa::SigningKey<C>
@@ -89,12 +128,55 @@ where
     }
 }
 
+impl<'a, C, U, P> VerifyingKey<'a, &'a Signature<U, P>> for ::ecdsa::VerifyingKey<C>
+where
+    C: CurveArithmetic + DigestAlgorithm + EcdsaCurve,
+    ::ecdsa::VerifyingKey<C>: PrehashVerifier<::ecdsa::Signature<C>>,
+    <<C as Curve>::FieldBytesSize as Add>::Output: ArraySize,
+{
+    type StartError = signature::Error;
+    type Verifier = EcdsaVerifierState<'a, C, U, P>;
+
+    fn verify(
+        &'a self,
+        signature: &'a Signature<U, P>,
+    ) -> Result<Self::Verifier, Self::StartError> {
+        let mut digest = <C as DigestAlgorithm>::Digest::new();
+
+        if let Some(ref protected) = signature.protected {
+            digest.update(protected.as_ref());
+        }
+
+        digest.update(b".");
+
+        Ok(EcdsaVerifierState {
+            verifier: self,
+            signature: signature.signature.as_ref(),
+            digest,
+            _phantom: core::marker::PhantomData,
+        })
+    }
+}
+
 impl<C, U, P> Update for EcdsaSignerState<'_, C, U, P>
 where
     C: CurveArithmetic + DigestAlgorithm + EcdsaCurve,
     <<C as Curve>::FieldBytesSize as Add>::Output: ArraySize,
     U: Serialize,
     P: Serialize,
+{
+    type Error = signature::Error;
+
+    fn update(&mut self, chunk: impl AsRef<[u8]>) -> Result<(), Self::Error> {
+        self.digest.update(chunk.as_ref());
+        Ok(())
+    }
+}
+
+impl<C, U, P> Update for EcdsaVerifierState<'_, C, U, P>
+where
+    C: CurveArithmetic + DigestAlgorithm + EcdsaCurve,
+    <<C as Curve>::FieldBytesSize as Add>::Output: ArraySize,
 {
     type Error = signature::Error;
 
@@ -126,5 +208,27 @@ where
             protected: self.protected,
             signature: signature_bytes.to_bytes().to_vec().into(),
         })
+    }
+}
+
+impl<'a, C, U, P> Verifier<'a> for EcdsaVerifierState<'a, C, U, P>
+where
+    C: CurveArithmetic + DigestAlgorithm + EcdsaCurve,
+    ::ecdsa::VerifyingKey<C>: PrehashVerifier<::ecdsa::Signature<C>>,
+    <<C as Curve>::FieldBytesSize as Add>::Output: ArraySize,
+{
+    type FinishError = signature::Error;
+
+    fn finish(self) -> Result<(), Self::FinishError> {
+        let prehash = self.digest.finalize();
+
+        let signature = ::ecdsa::Signature::<C>::from_slice(self.signature)
+            .map_err(|_| signature::Error::new())?;
+
+        self.verifier
+            .verify_prehash(&prehash, &signature)
+            .map_err(|_| signature::Error::new())?;
+
+        Ok(())
     }
 }

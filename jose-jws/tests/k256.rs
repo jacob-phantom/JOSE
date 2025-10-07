@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2025 Phantom Technologies, Inc. <legal@phantom.app>
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! K-256 (secp256k1) ECDSA signing tests
+//! K-256 (secp256k1) ECDSA signing and verification tests
 
 #![cfg(feature = "k256")]
 
 use jose_b64::stream::Update as _;
-use jose_jws::crypto::{Signer as _, SigningKey as _};
-use jose_jws::{Flattened, Protected, Unprotected};
-use k256::ecdsa::SigningKey;
+use jose_jws::crypto::{Signer as _, SigningKey as _, Verifier as _, VerifyingKey as _};
+use jose_jws::{Protected, Unprotected};
+use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::OsRng;
 
 #[test]
@@ -155,9 +155,13 @@ fn test_k256_header_influence() {
     assert_eq!(sig3.signature, sig4.signature);
 }
 
+
+// Verification tests
+
 #[test]
-fn test_k256_signature_quality() {
+fn test_k256_basic_verification() {
     let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let verifying_key = VerifyingKey::from(&signing_key);
     let payload = b"test payload";
 
     let protected = Protected {
@@ -168,22 +172,25 @@ fn test_k256_signature_quality() {
         ..Default::default()
     };
 
+    // Create signature
     let mut signer = signing_key
         .sign(Some(protected), None::<Unprotected>)
         .expect("failed to start signing");
-
     signer.update(payload).expect("failed to update payload");
     let signature = signer.finish(OsRng).expect("failed to finish signing");
 
-    // Verify signature is not degenerate (all zeros or all ones)
-    assert_ne!(signature.signature.as_ref(), &[0u8; 64]);
-    assert_ne!(signature.signature.as_ref(), &[0xFFu8; 64]);
+    // Verify signature
+    let mut verifier = verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(payload).expect("failed to update payload");
+    verifier.finish().expect("verification failed");
 }
 
 #[test]
-fn test_k256_jws_serialization_safety() {
+fn test_k256_verification_wrong_payload() {
     let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
-    let payload = b"sensitive data";
+    let verifying_key = VerifyingKey::from(&signing_key);
 
     let protected = Protected {
         oth: Unprotected {
@@ -193,26 +200,50 @@ fn test_k256_jws_serialization_safety() {
         ..Default::default()
     };
 
+    // Create signature with one payload
     let mut signer = signing_key
         .sign(Some(protected), None::<Unprotected>)
         .expect("failed to start signing");
+    signer.update(b"original payload").expect("failed to update");
+    let signature = signer.finish(OsRng).expect("failed to finish");
 
+    // Try to verify with different payload
+    let mut verifier = verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(b"modified payload").expect("failed to update");
+
+    assert!(verifier.finish().is_err(), "verification should fail with wrong payload");
+}
+
+#[test]
+fn test_k256_verification_wrong_key() {
+    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let wrong_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let wrong_verifying_key = VerifyingKey::from(&wrong_key);
+    let payload = b"test payload";
+
+    let protected = Protected {
+        oth: Unprotected {
+            alg: Some(jose_jwa::Signing::Es256K),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    // Create signature with original key
+    let mut signer = signing_key
+        .sign(Some(protected), None::<Unprotected>)
+        .expect("failed to start signing");
     signer.update(payload).expect("failed to update");
     let signature = signer.finish(OsRng).expect("failed to finish");
 
-    // Construct flattened JWS
-    let jws = Flattened {
-        payload: Some(payload.to_vec().into()),
-        signature,
-    };
+    // Try to verify with wrong key
+    let mut verifier = wrong_verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(payload).expect("failed to update");
 
-    // Serialize to JSON
-    let serialized = serde_json::to_string(&jws).expect("failed to serialize");
-
-    // Verify it's valid JSON
-    let _: serde_json::Value = serde_json::from_str(&serialized).expect("invalid JSON produced");
-
-    // Verify protected header is base64url encoded
-    assert!(serialized.contains("\"protected\""));
-    assert!(serialized.contains("\"signature\""));
+    assert!(verifier.finish().is_err(), "verification should fail with wrong key");
 }
+

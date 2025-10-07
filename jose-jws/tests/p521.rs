@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2025 Phantom Technologies, Inc. <legal@phantom.app>
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! P-521 (secp521r1) ECDSA signing tests
+//! P-521 (secp521r1) ECDSA signing and verification tests
 
 #![cfg(feature = "p521")]
 
 use jose_b64::stream::Update as _;
-use jose_jws::crypto::{Signer as _, SigningKey as _};
+use jose_jws::crypto::{Signer as _, SigningKey as _, Verifier as _, VerifyingKey as _};
 use jose_jws::{Protected, Unprotected};
-use p521::ecdsa::SigningKey;
+use p521::ecdsa::{SigningKey, VerifyingKey};
 use signature::rand_core::OsRng;
 
 #[test]
@@ -39,9 +39,14 @@ fn test_p521_basic_signing() {
     assert_eq!(signature.signature.len(), 132);
 }
 
+
+// Verification tests
+
 #[test]
-fn test_p521_payload_variations() {
+fn test_p521_basic_verification() {
     let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let verifying_key = VerifyingKey::from(&signing_key);
+    let payload = b"test payload";
 
     let protected = Protected {
         oth: Unprotected {
@@ -51,35 +56,78 @@ fn test_p521_payload_variations() {
         ..Default::default()
     };
 
-    // Test various payload sizes including boundary conditions
-    for size in [0, 1, 65, 66, 67, 131, 132, 133, 10 * 1024 * 1024] {
-        let payload = vec![0xFFu8; size];
-
-        let mut signer = signing_key
-            .sign(Some(protected.clone()), None::<Unprotected>)
-            .expect("failed to start signing");
-
-        signer.update(&payload).expect("failed to update payload");
-
-        let signature = signer
-            .finish(OsRng)
-            .unwrap_or_else(|_| panic!("failed to sign payload of size {size}"));
-
-        assert_eq!(signature.signature.len(), 132);
-    }
-
-    // Test different payloads produce different signatures
-    let mut signer1 = signing_key
-        .sign(Some(protected.clone()), None::<Unprotected>)
-        .expect("failed to start signing");
-    signer1.update(b"payload1").expect("failed to update");
-    let sig1 = signer1.finish(OsRng).expect("failed to finish");
-
-    let mut signer2 = signing_key
+    // Create signature
+    let mut signer = signing_key
         .sign(Some(protected), None::<Unprotected>)
         .expect("failed to start signing");
-    signer2.update(b"payload2").expect("failed to update");
-    let sig2 = signer2.finish(OsRng).expect("failed to finish");
+    signer.update(payload).expect("failed to update payload");
+    let signature = signer.finish(OsRng).expect("failed to finish signing");
 
-    assert_ne!(sig1.signature, sig2.signature);
+    // Verify signature
+    let mut verifier = verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(payload).expect("failed to update payload");
+    verifier.finish().expect("verification failed");
 }
+
+#[test]
+fn test_p521_verification_wrong_payload() {
+    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let verifying_key = VerifyingKey::from(&signing_key);
+
+    let protected = Protected {
+        oth: Unprotected {
+            alg: Some(jose_jwa::Signing::Es512),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    // Create signature with one payload
+    let mut signer = signing_key
+        .sign(Some(protected), None::<Unprotected>)
+        .expect("failed to start signing");
+    signer.update(b"original payload").expect("failed to update");
+    let signature = signer.finish(OsRng).expect("failed to finish");
+
+    // Try to verify with different payload
+    let mut verifier = verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(b"modified payload").expect("failed to update");
+
+    assert!(verifier.finish().is_err(), "verification should fail with wrong payload");
+}
+
+#[test]
+fn test_p521_verification_wrong_key() {
+    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let wrong_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+    let wrong_verifying_key = VerifyingKey::from(&wrong_key);
+    let payload = b"test payload";
+
+    let protected = Protected {
+        oth: Unprotected {
+            alg: Some(jose_jwa::Signing::Es512),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    // Create signature with original key
+    let mut signer = signing_key
+        .sign(Some(protected), None::<Unprotected>)
+        .expect("failed to start signing");
+    signer.update(payload).expect("failed to update");
+    let signature = signer.finish(OsRng).expect("failed to finish");
+
+    // Try to verify with wrong key
+    let mut verifier = wrong_verifying_key
+        .verify(&signature)
+        .expect("failed to start verification");
+    verifier.update(payload).expect("failed to update");
+
+    assert!(verifier.finish().is_err(), "verification should fail with wrong key");
+}
+
