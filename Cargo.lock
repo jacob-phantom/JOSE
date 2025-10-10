@@ -404,8 +404,10 @@ dependencies = [
  "p384",
  "p521",
  "rand_core",
+ "rsa",
  "serde",
  "serde_json",
+ "sha2",
  "signature",
 ]
 

@@ -24,6 +24,7 @@ ecdsa = ["dep:ecdsa"]
 p256 = ["dep:p256", "ecdsa", "elliptic-curve", "signature"]
 p384 = ["dep:p384", "ecdsa", "elliptic-curve", "signature"]
 p521 = ["dep:p521", "ecdsa", "elliptic-curve", "signature"]
+rsa = ["dep:rsa", "dep:sha2", "signature"]
 k256 = ["dep:k256", "ecdsa", "elliptic-curve", "signature"]
 
 [dependencies]
@@ -41,6 +42,8 @@ p256 = { version = "0.14.0-pre.9", default-features = false, optional = true, fe
 p384 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
 p521 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
 k256 = { version = "0.14.0-pre.9", default-features = false, optional = true, features = ["arithmetic", "ecdsa"] }
+rsa = { version = "0.10.0-rc.9", default-features = false, optional = true }
+sha2 = { version = "0.11.0-pre.5", default-features = false, optional = true }
 signature = { version = "3.0.0-rc.4", default-features = false, optional = true, features = ["digest"] }
 
 [dev-dependencies]

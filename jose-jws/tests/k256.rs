@@ -155,7 +155,6 @@ fn test_k256_header_influence() {
     assert_eq!(sig3.signature, sig4.signature);
 }
 
-
 // Verification tests
 
 #[test]
@@ -204,16 +203,23 @@ fn test_k256_verification_wrong_payload() {
     let mut signer = signing_key
         .sign(Some(protected), None::<Unprotected>)
         .expect("failed to start signing");
-    signer.update(b"original payload").expect("failed to update");
+    signer
+        .update(b"original payload")
+        .expect("failed to update");
     let signature = signer.finish(OsRng).expect("failed to finish");
 
     // Try to verify with different payload
     let mut verifier = verifying_key
         .verify(&signature)
         .expect("failed to start verification");
-    verifier.update(b"modified payload").expect("failed to update");
+    verifier
+        .update(b"modified payload")
+        .expect("failed to update");
 
-    assert!(verifier.finish().is_err(), "verification should fail with wrong payload");
+    assert!(
+        verifier.finish().is_err(),
+        "verification should fail with wrong payload"
+    );
 }
 
 #[test]
@@ -244,6 +250,8 @@ fn test_k256_verification_wrong_key() {
         .expect("failed to start verification");
     verifier.update(payload).expect("failed to update");
 
-    assert!(verifier.finish().is_err(), "verification should fail with wrong key");
+    assert!(
+        verifier.finish().is_err(),
+        "verification should fail with wrong key"
+    );
 }
-

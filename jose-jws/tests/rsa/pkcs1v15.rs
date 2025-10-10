@@ -1,24 +1,27 @@
 // SPDX-FileCopyrightText: 2025 Phantom Technologies, Inc. <legal@phantom.app>
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! P-256 (secp256r1) ECDSA signing and verification tests
-
-#![cfg(feature = "p256")]
+//! PKCS#1 v1.5 signing and verification tests (RS256, RS384, RS512)
 
 use jose_b64::stream::Update as _;
 use jose_jws::crypto::{Signer as _, SigningKey as _, Verifier as _, VerifyingKey as _};
 use jose_jws::{Protected, Unprotected};
-use p256::ecdsa::{SigningKey, VerifyingKey};
-use signature::rand_core::OsRng;
+use rand_core::{OsRng, TryRngCore};
+use rsa::pkcs1v15;
+use sha2::{Sha256, Sha384, Sha512};
+use signature::Keypair;
 
 #[test]
-fn test_p256_basic_signing() {
-    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+fn test_rs256_basic_signing() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha256>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
     let payload = b"test payload";
 
     let protected = Protected {
         oth: Unprotected {
-            alg: Some(jose_jwa::Signing::Es256),
+            alg: Some(jose_jwa::Signing::Rs256),
             ..Default::default()
         },
         ..Default::default()
@@ -37,24 +40,27 @@ fn test_p256_basic_signing() {
     assert!(signature.header.is_none());
     assert!(!signature.signature.is_empty());
 
-    // P-256 signatures are 64 bytes (r || s)
-    assert_eq!(signature.signature.len(), 64);
+    // RSA-2048 signatures are 256 bytes
+    assert_eq!(signature.signature.len(), 256);
 }
 
 #[test]
-fn test_p256_deterministic_signing() {
-    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
+fn test_rs256_deterministic_signing() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha256>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
     let payload = b"test payload";
 
     let protected = Protected {
         oth: Unprotected {
-            alg: Some(jose_jwa::Signing::Es256),
+            alg: Some(jose_jwa::Signing::Rs256),
             ..Default::default()
         },
         ..Default::default()
     };
 
-    // P-256 uses deterministic ECDSA (RFC 6979) - same key and payload produce same signature
+    // PKCS#1 v1.5 is deterministic - same key and payload produce same signature
     let mut signer1 = signing_key
         .sign(Some(protected.clone()), None::<Unprotected>)
         .expect("failed to start signing");
@@ -70,17 +76,18 @@ fn test_p256_deterministic_signing() {
     assert_eq!(sig1.signature, sig2.signature);
 }
 
-// Verification tests
-
 #[test]
-fn test_p256_basic_verification() {
-    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
-    let verifying_key = VerifyingKey::from(&signing_key);
+fn test_rs256_verification() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha256>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
+    let verifying_key = signing_key.verifying_key();
     let payload = b"test payload";
 
     let protected = Protected {
         oth: Unprotected {
-            alg: Some(jose_jwa::Signing::Es256),
+            alg: Some(jose_jwa::Signing::Rs256),
             ..Default::default()
         },
         ..Default::default()
@@ -102,13 +109,16 @@ fn test_p256_basic_verification() {
 }
 
 #[test]
-fn test_p256_verification_wrong_payload() {
-    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
-    let verifying_key = VerifyingKey::from(&signing_key);
+fn test_rs256_verification_wrong_payload() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha256>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
+    let verifying_key = signing_key.verifying_key();
 
     let protected = Protected {
         oth: Unprotected {
-            alg: Some(jose_jwa::Signing::Es256),
+            alg: Some(jose_jwa::Signing::Rs256),
             ..Default::default()
         },
         ..Default::default()
@@ -138,35 +148,53 @@ fn test_p256_verification_wrong_payload() {
 }
 
 #[test]
-fn test_p256_verification_wrong_key() {
-    let signing_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
-    let wrong_key = SigningKey::try_from_rng(&mut OsRng).expect("failed to generate key");
-    let wrong_verifying_key = VerifyingKey::from(&wrong_key);
+fn test_rs384_basic_signing() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha384>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
     let payload = b"test payload";
 
     let protected = Protected {
         oth: Unprotected {
-            alg: Some(jose_jwa::Signing::Es256),
+            alg: Some(jose_jwa::Signing::Rs384),
             ..Default::default()
         },
         ..Default::default()
     };
 
-    // Create signature with original key
     let mut signer = signing_key
         .sign(Some(protected), None::<Unprotected>)
         .expect("failed to start signing");
-    signer.update(payload).expect("failed to update");
-    let signature = signer.finish(OsRng).expect("failed to finish");
+    signer.update(payload).expect("failed to update payload");
+    let signature = signer.finish(OsRng).expect("failed to finish signing");
 
-    // Try to verify with wrong key
-    let mut verifier = wrong_verifying_key
-        .verify(&signature)
-        .expect("failed to start verification");
-    verifier.update(payload).expect("failed to update");
+    assert!(signature.protected.is_some());
+    assert_eq!(signature.signature.len(), 256);
+}
 
-    assert!(
-        verifier.finish().is_err(),
-        "verification should fail with wrong key"
-    );
+#[test]
+fn test_rs512_basic_signing() {
+    let mut rng = OsRng;
+    let signing_key =
+        pkcs1v15::SigningKey::<Sha512>::random_unprefixed(&mut rng.unwrap_mut(), 2048)
+            .expect("failed to generate key");
+    let payload = b"test payload";
+
+    let protected = Protected {
+        oth: Unprotected {
+            alg: Some(jose_jwa::Signing::Rs512),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut signer = signing_key
+        .sign(Some(protected), None::<Unprotected>)
+        .expect("failed to start signing");
+    signer.update(payload).expect("failed to update payload");
+    let signature = signer.finish(OsRng).expect("failed to finish signing");
+
+    assert!(signature.protected.is_some());
+    assert_eq!(signature.signature.len(), 256);
 }
